@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String            @id @default(cuid())
+  name            String?
+  email           String            @unique
+  password        String?
+  image           String?
+  emailVerified   DateTime?
+  createdAt       DateTime          @default(now())
+  profile         MasterProfile?
+  resumes         Resume[]
+  plan            SubscriptionPlan  @default(FREE)
+  accounts        Account[]
+  sessions        Session[]
+  
+  // NEW: For resume generation system
+  jobDescriptions JobDescription[]
+  profileMatches  ProfileMatch[]
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?
+  access_token       String?
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?
+  session_state      String?
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  
+  @@unique([identifier, token])
+}
+
+model MasterProfile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  
+  // Personal Info
+  fullName      String?
+  phone         String?
+  location      String?
+  linkedin      String?
+  github        String?
+  portfolio     String?
+  summary       String?  @db.Text
+  
+  // Main sections - Using Json for flexibility
+  education     Json?    // Education[]
+  experience    Json?    // ExperienceItem[]
+  projects      Json?    // Project[]
+  certifications Json?   // Certification[]
+  achievements  Json?    // Achievement[]
+  
+  // Skills - Using Json for coreSkills object structure
+  coreSkills    Json?    // CoreSkills object with categories
+  softSkills    String[] // Simple array
+  tools         String[] // Simple array
+  
+  // Additional Info
+  codingProfiles Json?   // CodingProfile[]
+  languages     Json?    // Language[] with proficiency
+  
+  // Meta
+  completeness  Int?     @default(0)
+  lastUpdated   DateTime @default(now()) @updatedAt
+  createdAt     DateTime @default(now())
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// NEW MODEL: Store analyzed job descriptions
+model JobDescription {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Raw JD data
+  jdText          String   @db.Text
+  fileName        String?  // If uploaded as file
+  fileSize        Int?     // File size in bytes
+  
+  // Parsed analysis (full JSON from Groq)
+  analysis        Json     // JobDescriptionAnalysis type
+  
+  // Quick access fields for querying
+  jobTitle        String?
+  companyName     String?
+  experienceLevel String?  // "junior", "mid", "senior", etc.
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  matches         ProfileMatch[]
+  resumes         Resume[]
+  
+  @@index([userId])
+  @@index([jobTitle])
+  @@index([createdAt])
+}
+
+// NEW MODEL: Store profile match results
+model ProfileMatch {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  jdId            String
+  jobDescription  JobDescription @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  
+  profileId       String   // Reference to MasterProfile.id
+  
+  // Match results (full JSON)
+  matchData       Json     // ProfileMatchResult type
+  
+  // Quick access fields
+  overallScore    Int      // 0-100 for easy querying/sorting
+  potentialScore  Int?     // Only for premium users
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  resumes         Resume[]
+  
+  @@index([userId])
+  @@index([jdId])
+  @@index([overallScore])
+  @@index([createdAt])
+}
+
+// UPDATED: Resume model with new relations
+model Resume {
+  id              String     @id @default(cuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // NEW: Link to JD and Match
+  jdId            String?
+  jobDescription  JobDescription? @relation(fields: [jdId], references: [id], onDelete: SetNull)
+  
+  matchId         String?
+  profileMatch    ProfileMatch?   @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  
+  // Resume data
+  jobDesc         String     @db.Text  // Keep for backward compatibility
+  content         Json       // Optimized resume data
+  template        String     // Template ID used
+  
+  // Metadata
+  score           Int?       // ATS score
+  version         Int        @default(1)  // Version number if regenerated
+  
+  // File URLs (after PDF generation)
+  pdfUrl          String?
+  docxUrl         String?
+  
+  // Timestamps
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  
+  // Relations
+  feedbacks       Feedback[]
+  
+  @@index([userId])
+  @@index([jdId])
+  @@index([matchId])
+  @@index([createdAt])
+}
+
+// UPDATED: Feedback model - more structured
+model Feedback {
+  id        String   @id @default(cuid())
+  resumeId  String
+  resume    Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  
+  // Feedback data
+  rating    Int?     // 1-5 stars
+  points    Json     // Detailed feedback points
+  userNote  String?  @db.Text  // User's own notes
+  
+  createdAt DateTime @default(now())
+  
+  @@index([resumeId])
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+}
