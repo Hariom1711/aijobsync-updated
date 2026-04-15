@@ -309,3 +309,41 @@ export const RESUME_INITIAL_DATA: ResumeData = {
   achievements: { visible: true, data: [] },
   certifications: { visible: true, data: [] },
 };
+
+// Add these to the bottom of types/resume.ts
+
+export type ExperienceItem = {
+  role: string;        // was "title" in editor — FIX: rename to match template
+  company: string;
+  location: string;
+  duration: string;    // was startDate/endDate separately — templates show "duration"
+  responsibilities: string[];  // was "description" in editor
+  skillsUsed?: string[];
+};
+
+export type ProjectItem = {
+  title: string;      // was "name" in editor — FIX: rename to match template
+  role?: string;
+  technologies: string[];
+  description: string;
+  impact?: string;
+  highlights?: string[];
+  github?: string;
+  link?: string;
+};
+
+export type EducationItem = {
+  degree: string;
+  field: string;
+  institution: string;
+  location: string;
+  startDate: string;
+  endDate: string;
+  grade?: string;
+};
+
+export type CertificationItem = {
+  name: string;
+  issuer: string;
+  issueDate?: string;
+};

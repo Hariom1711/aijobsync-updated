@@ -56,6 +56,7 @@ export default function A4Preview({
           transition={{ duration: 0.25 }}
         >
           <Card 
+           id={`resume-page-${currentPage}`}
             className="relative bg-white shadow-2xl" 
             style={{ 
               width: `${A4_WIDTH}px`, 
