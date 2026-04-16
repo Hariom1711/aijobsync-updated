@@ -1,384 +1,3 @@
-import React, { useEffect, useRef, useState } from "react";
-import { ResumeData } from "@/types/resume";
-
-interface PageItem {
-  section: string;
-  type: "header" | "item";
-  itemIndex?: number;
-}
-
-interface SimpleMeasurementContainerProps {
-  resumeData: ResumeData;
-  sectionOrder: (keyof ResumeData)[];
-  onPagesComputed: (pages: PageItem[][]) => void;
-  templateId?: string;
-  onCalibrating?: (isCalibrating: boolean) => void;
-}
-
-export default function SimpleMeasurementContainer({
-  resumeData,
-  sectionOrder,
-  onPagesComputed,
-  templateId = "TemplateModern",
-  onCalibrating,
-}: SimpleMeasurementContainerProps) {
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [isCalculating, setIsCalculating] = useState(true);
-
-  useEffect(() => {
-    const A4_HEIGHT = 1122;
-    const SAFE_HEIGHT = templateId === "TemplateMinimal" ? 1100 : 1000; // Minimal can fit more
-    const CONTENT_WIDTH = 698;
-
-    const calculatePages = async () => {
-      if (!measureRef.current) return;
-
-      // console.log(`🎯 Starting Simple DOM Pagination for ${templateId}...`);
-      setIsCalculating(true);
-      if (onCalibrating) onCalibrating(true);
-
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      const pages: PageItem[][] = [];
-      let currentPage: PageItem[] = [];
-      let currentHeight = 0;
-
-      const visibleSections = sectionOrder.filter(
-        (key) => (resumeData as any)[key]?.visible
-      );
-
-      // Helper to measure element height
-      const measureElement = (html: string): number => {
-        const tempDiv = document.createElement("div");
-        tempDiv.style.position = "absolute";
-        tempDiv.style.left = "-9999px";
-        tempDiv.style.width = `${CONTENT_WIDTH}px`;
-        tempDiv.style.visibility = "hidden";
-        tempDiv.innerHTML = html;
-        document.body.appendChild(tempDiv);
-        const height = tempDiv.offsetHeight;
-        document.body.removeChild(tempDiv);
-        return height;
-      };
-
-      // Template-specific styling classes
-      const isModern = templateId === "TemplateModern";
-      const isClassic = templateId === "TemplateClassic";
-      const isMinimal = templateId === "TemplateMinimal";
-
-      // First page includes header
-      let HEADER_HEIGHT = 120;
-      if (isModern) HEADER_HEIGHT = 110;
-      if (isClassic) HEADER_HEIGHT = 140;
-      if (isMinimal) HEADER_HEIGHT = 90; // Minimal has smaller header
-      
-      currentHeight = HEADER_HEIGHT;
-      // console.log(`📄 Page 1 - Starting with header (${HEADER_HEIGHT}px)`);
-
-      for (const sectionKey of visibleSections) {
-        const section = (resumeData as any)[sectionKey];
-        if (!section) continue;
-
-        // console.log(`\n📦 Processing section: ${sectionKey}`);
-
-        // Measure section header
-        let headerHTML = "";
-        if (isMinimal) {
-          headerHTML = `<h2 style="font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.1em; 
-                             margin-bottom: 8px; color: #1f2937;">
-                         ${String(sectionKey).charAt(0).toUpperCase() + String(sectionKey).slice(1)}
-                       </h2>`;
-        } else if (isModern) {
-          headerHTML = `<h2 style="font-size: 18px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; 
-                             border-bottom: 1px solid #333; padding-bottom: 4px; margin-bottom: 16px;">
-                         ${String(sectionKey).charAt(0).toUpperCase() + String(sectionKey).slice(1)}
-                       </h2>`;
-        } else {
-          headerHTML = `<h2 style="font-size: 16px; font-weight: bold; text-transform: uppercase; 
-                             border-bottom: 2px solid #666; padding-bottom: 4px; margin-bottom: 12px;">
-                         ${String(sectionKey).charAt(0).toUpperCase() + String(sectionKey).slice(1)}
-                       </h2>`;
-        }
-
-        const headerHeight = measureElement(headerHTML);
-
-        // Check if header fits
-        if (currentHeight + headerHeight > SAFE_HEIGHT && currentPage.length > 0) {
-          // console.log(`   🔀 Header doesn't fit, starting new page`);
-          pages.push([...currentPage]);
-          currentPage = [];
-          currentHeight = 0;
-        }
-
-        // Add section header
-        currentPage.push({ section: String(sectionKey), type: "header" });
-        currentHeight += headerHeight;
-        // console.log(`   ✅ Added header (height: ${currentHeight}px)`);
-
-        // Process section content
-        if (Array.isArray(section.data)) {
-          // Array sections
-          for (let itemIndex = 0; itemIndex < section.data.length; itemIndex++) {
-            const item = section.data[itemIndex];
-            let itemHTML = "";
-
-            if (sectionKey === "experience") {
-              if (isMinimal) {
-                itemHTML = `<div style="margin-bottom: 12px;">
-                             <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px;">
-                               <h3 style="font-size: 12px; font-weight: bold;">${item?.title || ""}</h3>
-                               <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
-                             </div>
-                             <div style="font-size: 12px; margin-bottom: 2px;">${item?.company}, ${item?.location}</div>
-                             <ul style="margin-left: 16px; font-size: 12px; line-height: 1.4; list-style: none;">
-                               ${(item?.description || []).map((d: string) => `<li style="margin-bottom: 2px;"><span style="margin-right: 8px;">—</span>${d}</li>`).join("")}
-                             </ul>
-                           </div>`;
-              } else if (isModern) {
-                itemHTML = `<div style="margin-bottom: 20px;">
-                             <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-                               <h3 style="font-size: 14px; font-weight: 600;">${item?.title || ""}</h3>
-                               <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
-                             </div>
-                             <div style="font-size: 13px; color: #666; font-style: italic; margin-bottom: 8px;">
-                               ${item?.company} • ${item?.location}
-                             </div>
-                             <ul style="margin-left: 8px; font-size: 13px; line-height: 1.5;">
-                               ${(item?.description || []).map((d: string) => `<li style="margin-bottom: 2px;">${d}</li>`).join("")}
-                             </ul>
-                           </div>`;
-              } else {
-                itemHTML = `<div style="margin-bottom: 16px;">
-                             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                               <h3 style="font-size: 14px; font-weight: bold;">${item?.title || ""}</h3>
-                               <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
-                             </div>
-                             <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
-                               ${item?.company} | ${item?.location}
-                             </div>
-                             <ul style="margin-left: 20px; font-size: 12px;">
-                               ${(item?.description || []).map((d: string) => `<li style="margin-bottom: 4px;">${d}</li>`).join("")}
-                             </ul>
-                           </div>`;
-              }
-            } else if (sectionKey === "education") {
-              if (isMinimal) {
-                itemHTML = `<div style="margin-bottom: 8px;">
-                             <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-                               <div style="font-size: 12px; font-weight: bold;">${item?.degree} in ${item?.field}</div>
-                               <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
-                             </div>
-                             <div style="font-size: 12px;">${item?.institution}, ${item?.location}</div>
-                             ${item?.grade ? `<div style="font-size: 12px; color: #666;">CGPA: ${item?.grade}</div>` : ""}
-                           </div>`;
-              } else if (isModern) {
-                itemHTML = `<div style="margin-bottom: 16px;">
-                             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                               <div style="font-size: 14px; font-weight: 600;">${item?.degree} in ${item?.field}</div>
-                               <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
-                             </div>
-                             <div style="font-size: 13px; color: #666;">${item?.institution} — ${item?.location}</div>
-                             ${item?.grade ? `<div style="font-size: 13px; color: #666;">Grade: ${item?.grade}</div>` : ""}
-                           </div>`;
-              } else {
-                itemHTML = `<div style="margin-bottom: 12px;">
-                             <div style="display: flex; justify-content: space-between;">
-                               <div style="font-size: 14px; font-weight: bold;">${item?.degree} in ${item?.field}</div>
-                               <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
-                             </div>
-                             <div style="font-size: 12px; color: #666;">${item?.institution}, ${item?.location}</div>
-                             ${item?.grade ? `<div style="font-size: 12px; color: #666;">Grade: ${item?.grade}</div>` : ""}
-                           </div>`;
-              }
-            } else if (sectionKey === "projects") {
-              if (isMinimal) {
-                itemHTML = `<div style="margin-bottom: 8px;">
-                             <div style="font-size: 12px; font-weight: bold; margin-bottom: 2px;">${item?.name}${item?.role ? ` — ${item?.role}` : ""}</div>
-                             ${item?.technologies ? `<div style="font-size: 12px; font-style: italic; color: #666; margin-bottom: 2px;">${item?.technologies.join(" • ")}</div>` : ""}
-                             <div style="font-size: 12px; color: #374151; margin-top: 2px;">${item?.description || ""}</div>
-                           </div>`;
-              } else if (isModern) {
-                itemHTML = `<div style="margin-bottom: 16px;">
-                             <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">${item?.name}${item?.role ? ` — ${item?.role}` : ""}</div>
-                             ${item?.technologies ? `<div style="font-size: 12px; font-style: italic; color: #666; margin-bottom: 4px;">${item?.technologies.join(", ")}</div>` : ""}
-                             <div style="font-size: 13px; margin-top: 4px;">${item?.description || ""}</div>
-                             ${item?.impact ? `<div style="font-size: 13px; color: #666; margin-top: 4px;">${item?.impact}</div>` : ""}
-                             ${item?.highlights ? `<ul style="margin-left: 8px; font-size: 13px; margin-top: 4px;">${item?.highlights.map((h: string) => `<li>${h}</li>`).join("")}</ul>` : ""}
-                           </div>`;
-              } else {
-                itemHTML = `<div style="margin-bottom: 12px;">
-                             <div style="font-size: 14px; font-weight: bold; margin-bottom: 4px;">${item?.name}</div>
-                             ${item?.technologies ? `<div style="font-size: 12px; color: #666; font-style: italic; margin-bottom: 4px;">${item?.technologies.join(", ")}</div>` : ""}
-                             <div style="font-size: 12px; margin-top: 4px;">${item?.description || ""}</div>
-                           </div>`;
-              }
-            } else if (sectionKey === "certifications") {
-              itemHTML = `<div style="margin-bottom: 10px; font-size: 13px;">
-                            <span style="font-weight: 600;">${item?.title}</span> • ${item?.issuer}
-                            ${item?.year ? `<span style="color: #666;"> (${item?.year})</span>` : ""}
-                          </div>`;
-            } else if (sectionKey === "achievements") {
-              if (isMinimal) {
-                itemHTML = `<li style="margin-bottom: 2px; font-size: 12px; list-style: none;"><span style="color: #16a34a; margin-right: 8px;">✓</span>${item}</li>`;
-              } else {
-                itemHTML = `<li style="margin-bottom: 6px; font-size: 13px;">${item}</li>`;
-              }
-            } else {
-              itemHTML = `<div style="margin-bottom: 8px; font-size: 12px;">${JSON.stringify(item)}</div>`;
-            }
-
-            const itemHeight = measureElement(itemHTML);
-            // console.log(`   📌 Item[${itemIndex}]: ${itemHeight}px`);
-
-            // Check if item fits
-            if (currentHeight + itemHeight > SAFE_HEIGHT) {
-              // console.log(`   🔀 Item doesn't fit, moving to new page`);
-              pages.push([...currentPage]);
-              currentPage = [{ section: String(sectionKey), type: "header" }];
-              currentHeight = headerHeight;
-              // console.log(`   📄 New page with continuation header`);
-            }
-
-            currentPage.push({
-              section: String(sectionKey),
-              type: "item",
-              itemIndex: itemIndex,
-            });
-            currentHeight += itemHeight;
-            // console.log(`   ✅ Added item[${itemIndex}] (height: ${currentHeight}px)`);
-          }
-        } else {
-          // Non-array sections (summary, skills)
-          let contentHTML = "";
-
-          if (sectionKey === "summary") {
-            contentHTML = isMinimal
-              ? `<p style="font-size: 12px; line-height: 1.5; margin-bottom: 12px;">${section.data || ""}</p>`
-              : isModern
-              ? `<p style="font-size: 13px; line-height: 1.6; margin-bottom: 20px;">${section.data || ""}</p>`
-              : `<p style="font-size: 12px; line-height: 1.6; margin-bottom: 16px;">${section.data || ""}</p>`;
-          } else if (sectionKey === "skills") {
-            if (isMinimal) {
-              contentHTML = `
-                <div style="font-size: 12px; margin-bottom: 12px; line-height: 1.4;">
-                  ${section.data.technical ? `
-                    <div style="margin-bottom: 4px;">
-                      <span style="font-weight: 600;">Technical: </span>
-                      <span>${section.data.technical.join(" • ")}</span>
-                    </div>` : ""}
-                  ${section.data.soft ? `
-                    <div style="margin-bottom: 4px;">
-                      <span style="font-weight: 600;">Soft Skills: </span>
-                      <span>${section.data.soft.join(" • ")}</span>
-                    </div>` : ""}
-                  ${section.data.tools ? `
-                    <div>
-                      <span style="font-weight: 600;">Tools: </span>
-                      <span>${section.data.tools.join(" • ")}</span>
-                    </div>` : ""}
-                </div>
-              `;
-            } else if (isModern) {
-              contentHTML = `
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
-                  ${section.data.technical ? `
-                    <div>
-                      <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Technical</div>
-                      <div style="font-size: 13px;">${section.data.technical.join(", ")}</div>
-                    </div>` : ""}
-                  ${section.data.soft ? `
-                    <div>
-                      <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Soft</div>
-                      <div style="font-size: 13px;">${section.data.soft.join(", ")}</div>
-                    </div>` : ""}
-                  ${section.data.tools ? `
-                    <div>
-                      <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Tools</div>
-                      <div style="font-size: 13px;">${section.data.tools.join(", ")}</div>
-                    </div>` : ""}
-                </div>
-              `;
-            } else {
-              contentHTML = `
-                <div style="margin-bottom: 16px;">
-                  ${section.data.technical ? `
-                    <div style="margin-bottom: 8px;">
-                      <span style="font-weight: 600; font-size: 12px;">Technical:</span>
-                      <span style="font-size: 12px;"> ${section.data.technical.join(", ")}</span>
-                    </div>` : ""}
-                  ${section.data.tools ? `
-                    <div style="margin-bottom: 8px;">
-                      <span style="font-weight: 600; font-size: 12px;">Tools:</span>
-                      <span style="font-size: 12px;"> ${section.data.tools.join(", ")}</span>
-                    </div>` : ""}
-                  ${section.data.soft ? `
-                    <div>
-                      <span style="font-weight: 600; font-size: 12px;">Soft Skills:</span>
-                      <span style="font-size: 12px;"> ${section.data.soft.join(", ")}</span>
-                    </div>` : ""}
-                </div>
-              `;
-            }
-          } else {
-            contentHTML = `<div style="font-size: 12px; margin-bottom: 12px;">${JSON.stringify(section.data)}</div>`;
-          }
-
-          const contentHeight = measureElement(contentHTML);
-          // console.log(`   📝 Content height: ${contentHeight}px`);
-
-          // Check if content fits
-          if (currentHeight + contentHeight > SAFE_HEIGHT && currentPage.length > 1) {
-            // console.log(`   🔀 Content doesn't fit, moving to new page`);
-            pages.push([...currentPage]);
-            currentPage = [{ section: String(sectionKey), type: "header" }];
-            currentHeight = headerHeight;
-          }
-
-          currentPage.push({ section: String(sectionKey), type: "item" });
-          currentHeight += contentHeight;
-          // console.log(`   ✅ Added content (height: ${currentHeight}px)`);
-        }
-      }
-
-      // Push final page
-      if (currentPage.length > 0) {
-        pages.push(currentPage);
-      }
-
-      // console.log(`\n✅ Pagination complete! ${pages.length} pages created`);
-      pages.forEach((page, i) => {
-        const pageInfo = page.map(item =>
-          item?.itemIndex !== undefined
-            ? `${item?.section}[${item?.itemIndex}]`
-            : `${item?.section}:${item?.type}`
-        ).join(", ");
-        // console.log(`   Page ${i + 1}: ${pageInfo}`);
-      });
-
-      setIsCalculating(false);
-      if (onCalibrating) onCalibrating(false);
-      onPagesComputed(pages.length > 0 ? pages : [[]]);
-    };
-
-    calculatePages();
-  }, [resumeData, sectionOrder, templateId, onPagesComputed, onCalibrating]);
-
-  return (
-    <div
-      ref={measureRef}
-      style={{
-        position: "absolute",
-        left: -9999,
-        top: -9999,
-        visibility: "hidden",
-        pointerEvents: "none",
-      }}
-      aria-hidden
-    />
-  );
-}
-
-
 // import React, { useEffect, useRef, useState } from "react";
 // import { ResumeData } from "@/types/resume";
 
@@ -408,7 +27,7 @@ export default function SimpleMeasurementContainer({
 
 //   useEffect(() => {
 //     const A4_HEIGHT = 1122;
-//     const SAFE_HEIGHT = 1000; // More conservative buffer
+//     const SAFE_HEIGHT = templateId === "TemplateMinimal" ? 1100 : 1000; // Minimal can fit more
 //     const CONTENT_WIDTH = 698;
 
 //     const calculatePages = async () => {
@@ -445,9 +64,14 @@ export default function SimpleMeasurementContainer({
 //       // Template-specific styling classes
 //       const isModern = templateId === "TemplateModern";
 //       const isClassic = templateId === "TemplateClassic";
+//       const isMinimal = templateId === "TemplateMinimal";
 
 //       // First page includes header
-//       const HEADER_HEIGHT = isModern ? 110 : isClassic ? 140 : 120;
+//       let HEADER_HEIGHT = 120;
+//       if (isModern) HEADER_HEIGHT = 110;
+//       if (isClassic) HEADER_HEIGHT = 140;
+//       if (isMinimal) HEADER_HEIGHT = 90; // Minimal has smaller header
+      
 //       currentHeight = HEADER_HEIGHT;
 //       // console.log(`📄 Page 1 - Starting with header (${HEADER_HEIGHT}px)`);
 
@@ -458,15 +82,23 @@ export default function SimpleMeasurementContainer({
 //         // console.log(`\n📦 Processing section: ${sectionKey}`);
 
 //         // Measure section header
-//         const headerHTML = isModern
-//           ? `<h2 style="font-size: 18px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; 
-//                        border-bottom: 1px solid #333; padding-bottom: 4px; margin-bottom: 16px;">
-//                ${String(sectionKey).charAt(0).toUpperCase() + String(sectionKey).slice(1)}
-//              </h2>`
-//           : `<h2 style="font-size: 16px; font-weight: bold; text-transform: uppercase; 
-//                        border-bottom: 2px solid #666; padding-bottom: 4px; margin-bottom: 12px;">
-//                ${String(sectionKey).charAt(0).toUpperCase() + String(sectionKey).slice(1)}
-//              </h2>`;
+//         let headerHTML = "";
+//         if (isMinimal) {
+//           headerHTML = `<h2 style="font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.1em; 
+//                              margin-bottom: 8px; color: #1f2937;">
+//                          ${String(sectionKey).charAt(0).toUpperCase() + String(sectionKey).slice(1)}
+//                        </h2>`;
+//         } else if (isModern) {
+//           headerHTML = `<h2 style="font-size: 18px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; 
+//                              border-bottom: 1px solid #333; padding-bottom: 4px; margin-bottom: 16px;">
+//                          ${String(sectionKey).charAt(0).toUpperCase() + String(sectionKey).slice(1)}
+//                        </h2>`;
+//         } else {
+//           headerHTML = `<h2 style="font-size: 16px; font-weight: bold; text-transform: uppercase; 
+//                              border-bottom: 2px solid #666; padding-bottom: 4px; margin-bottom: 12px;">
+//                          ${String(sectionKey).charAt(0).toUpperCase() + String(sectionKey).slice(1)}
+//                        </h2>`;
+//         }
 
 //         const headerHeight = measureElement(headerHTML);
 
@@ -491,70 +123,106 @@ export default function SimpleMeasurementContainer({
 //             let itemHTML = "";
 
 //             if (sectionKey === "experience") {
-//               itemHTML = isModern
-//                 ? `<div style="margin-bottom: 20px;">
-//                      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-//                        <h3 style="font-size: 14px; font-weight: 600;">${item.title || ""}</h3>
-//                        <span style="font-size: 12px; color: #666;">${item.startDate} - ${item.endDate}</span>
-//                      </div>
-//                      <div style="font-size: 13px; color: #666; font-style: italic; margin-bottom: 8px;">
-//                        ${item.company} • ${item.location}
-//                      </div>
-//                      <ul style="margin-left: 8px; font-size: 13px; line-height: 1.5;">
-//                        ${(item.description || []).map((d: string) => `<li style="margin-bottom: 2px;">${d}</li>`).join("")}
-//                      </ul>
-//                    </div>`
-//                 : `<div style="margin-bottom: 16px;">
-//                      <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-//                        <h3 style="font-size: 14px; font-weight: bold;">${item.title || ""}</h3>
-//                        <span style="font-size: 12px; color: #666;">${item.startDate} - ${item.endDate}</span>
-//                      </div>
-//                      <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
-//                        ${item.company} | ${item.location}
-//                      </div>
-//                      <ul style="margin-left: 20px; font-size: 12px;">
-//                        ${(item.description || []).map((d: string) => `<li style="margin-bottom: 4px;">${d}</li>`).join("")}
-//                      </ul>
-//                    </div>`;
+//               if (isMinimal) {
+//                 itemHTML = `<div style="margin-bottom: 12px;">
+//                              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px;">
+//                                <h3 style="font-size: 12px; font-weight: bold;">${item?.title || ""}</h3>
+//                                <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
+//                              </div>
+//                              <div style="font-size: 12px; margin-bottom: 2px;">${item?.company}, ${item?.location}</div>
+//                              <ul style="margin-left: 16px; font-size: 12px; line-height: 1.4; list-style: none;">
+//                                ${(item?.description || []).map((d: string) => `<li style="margin-bottom: 2px;"><span style="margin-right: 8px;">—</span>${d}</li>`).join("")}
+//                              </ul>
+//                            </div>`;
+//               } else if (isModern) {
+//                 itemHTML = `<div style="margin-bottom: 20px;">
+//                              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+//                                <h3 style="font-size: 14px; font-weight: 600;">${item?.title || ""}</h3>
+//                                <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
+//                              </div>
+//                              <div style="font-size: 13px; color: #666; font-style: italic; margin-bottom: 8px;">
+//                                ${item?.company} • ${item?.location}
+//                              </div>
+//                              <ul style="margin-left: 8px; font-size: 13px; line-height: 1.5;">
+//                                ${(item?.description || []).map((d: string) => `<li style="margin-bottom: 2px;">${d}</li>`).join("")}
+//                              </ul>
+//                            </div>`;
+//               } else {
+//                 itemHTML = `<div style="margin-bottom: 16px;">
+//                              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+//                                <h3 style="font-size: 14px; font-weight: bold;">${item?.title || ""}</h3>
+//                                <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
+//                              </div>
+//                              <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
+//                                ${item?.company} | ${item?.location}
+//                              </div>
+//                              <ul style="margin-left: 20px; font-size: 12px;">
+//                                ${(item?.description || []).map((d: string) => `<li style="margin-bottom: 4px;">${d}</li>`).join("")}
+//                              </ul>
+//                            </div>`;
+//               }
 //             } else if (sectionKey === "education") {
-//               itemHTML = isModern
-//                 ? `<div style="margin-bottom: 16px;">
-//                      <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-//                        <div style="font-size: 14px; font-weight: 600;">${item.degree} in ${item.field}</div>
-//                        <span style="font-size: 12px; color: #666;">${item.startDate} - ${item.endDate}</span>
-//                      </div>
-//                      <div style="font-size: 13px; color: #666;">${item.institution} — ${item.location}</div>
-//                      ${item.grade ? `<div style="font-size: 13px; color: #666;">Grade: ${item.grade}</div>` : ""}
-//                    </div>`
-//                 : `<div style="margin-bottom: 12px;">
-//                      <div style="display: flex; justify-content: space-between;">
-//                        <div style="font-size: 14px; font-weight: bold;">${item.degree} in ${item.field}</div>
-//                        <span style="font-size: 12px; color: #666;">${item.startDate} - ${item.endDate}</span>
-//                      </div>
-//                      <div style="font-size: 12px; color: #666;">${item.institution}, ${item.location}</div>
-//                      ${item.grade ? `<div style="font-size: 12px; color: #666;">Grade: ${item.grade}</div>` : ""}
-//                    </div>`;
+//               if (isMinimal) {
+//                 itemHTML = `<div style="margin-bottom: 8px;">
+//                              <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+//                                <div style="font-size: 12px; font-weight: bold;">${item?.degree} in ${item?.field}</div>
+//                                <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
+//                              </div>
+//                              <div style="font-size: 12px;">${item?.institution}, ${item?.location}</div>
+//                              ${item?.grade ? `<div style="font-size: 12px; color: #666;">CGPA: ${item?.grade}</div>` : ""}
+//                            </div>`;
+//               } else if (isModern) {
+//                 itemHTML = `<div style="margin-bottom: 16px;">
+//                              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+//                                <div style="font-size: 14px; font-weight: 600;">${item?.degree} in ${item?.field}</div>
+//                                <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
+//                              </div>
+//                              <div style="font-size: 13px; color: #666;">${item?.institution} — ${item?.location}</div>
+//                              ${item?.grade ? `<div style="font-size: 13px; color: #666;">Grade: ${item?.grade}</div>` : ""}
+//                            </div>`;
+//               } else {
+//                 itemHTML = `<div style="margin-bottom: 12px;">
+//                              <div style="display: flex; justify-content: space-between;">
+//                                <div style="font-size: 14px; font-weight: bold;">${item?.degree} in ${item?.field}</div>
+//                                <span style="font-size: 12px; color: #666;">${item?.startDate} - ${item?.endDate}</span>
+//                              </div>
+//                              <div style="font-size: 12px; color: #666;">${item?.institution}, ${item?.location}</div>
+//                              ${item?.grade ? `<div style="font-size: 12px; color: #666;">Grade: ${item?.grade}</div>` : ""}
+//                            </div>`;
+//               }
 //             } else if (sectionKey === "projects") {
-//               itemHTML = isModern
-//                 ? `<div style="margin-bottom: 16px;">
-//                      <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">${item.name}${item.role ? ` — ${item.role}` : ""}</div>
-//                      ${item.technologies ? `<div style="font-size: 12px; font-style: italic; color: #666; margin-bottom: 4px;">${item.technologies.join(", ")}</div>` : ""}
-//                      <div style="font-size: 13px; margin-top: 4px;">${item.description || ""}</div>
-//                      ${item.impact ? `<div style="font-size: 13px; color: #666; margin-top: 4px;">${item.impact}</div>` : ""}
-//                      ${item.highlights ? `<ul style="margin-left: 8px; font-size: 13px; margin-top: 4px;">${item.highlights.map((h: string) => `<li>${h}</li>`).join("")}</ul>` : ""}
-//                    </div>`
-//                 : `<div style="margin-bottom: 12px;">
-//                      <div style="font-size: 14px; font-weight: bold; margin-bottom: 4px;">${item.name}</div>
-//                      ${item.technologies ? `<div style="font-size: 12px; color: #666; font-style: italic; margin-bottom: 4px;">${item.technologies.join(", ")}</div>` : ""}
-//                      <div style="font-size: 12px; margin-top: 4px;">${item.description || ""}</div>
-//                    </div>`;
+//               if (isMinimal) {
+//                 itemHTML = `<div style="margin-bottom: 8px;">
+//                              <div style="font-size: 12px; font-weight: bold; margin-bottom: 2px;">${item?.name}${item?.role ? ` — ${item?.role}` : ""}</div>
+//                              ${item?.technologies ? `<div style="font-size: 12px; font-style: italic; color: #666; margin-bottom: 2px;">${item?.technologies.join(" • ")}</div>` : ""}
+//                              <div style="font-size: 12px; color: #374151; margin-top: 2px;">${item?.description || ""}</div>
+//                            </div>`;
+//               } else if (isModern) {
+//                 itemHTML = `<div style="margin-bottom: 16px;">
+//                              <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">${item?.name}${item?.role ? ` — ${item?.role}` : ""}</div>
+//                              ${item?.technologies ? `<div style="font-size: 12px; font-style: italic; color: #666; margin-bottom: 4px;">${item?.technologies.join(", ")}</div>` : ""}
+//                              <div style="font-size: 13px; margin-top: 4px;">${item?.description || ""}</div>
+//                              ${item?.impact ? `<div style="font-size: 13px; color: #666; margin-top: 4px;">${item?.impact}</div>` : ""}
+//                              ${item?.highlights ? `<ul style="margin-left: 8px; font-size: 13px; margin-top: 4px;">${item?.highlights.map((h: string) => `<li>${h}</li>`).join("")}</ul>` : ""}
+//                            </div>`;
+//               } else {
+//                 itemHTML = `<div style="margin-bottom: 12px;">
+//                              <div style="font-size: 14px; font-weight: bold; margin-bottom: 4px;">${item?.name}</div>
+//                              ${item?.technologies ? `<div style="font-size: 12px; color: #666; font-style: italic; margin-bottom: 4px;">${item?.technologies.join(", ")}</div>` : ""}
+//                              <div style="font-size: 12px; margin-top: 4px;">${item?.description || ""}</div>
+//                            </div>`;
+//               }
 //             } else if (sectionKey === "certifications") {
 //               itemHTML = `<div style="margin-bottom: 10px; font-size: 13px;">
-//                             <span style="font-weight: 600;">${item.title}</span> • ${item.issuer}
-//                             ${item.year ? `<span style="color: #666;"> (${item.year})</span>` : ""}
+//                             <span style="font-weight: 600;">${item?.title}</span> • ${item?.issuer}
+//                             ${item?.year ? `<span style="color: #666;"> (${item?.year})</span>` : ""}
 //                           </div>`;
 //             } else if (sectionKey === "achievements") {
-//               itemHTML = `<li style="margin-bottom: 6px; font-size: 13px;">${item}</li>`;
+//               if (isMinimal) {
+//                 itemHTML = `<li style="margin-bottom: 2px; font-size: 12px; list-style: none;"><span style="color: #16a34a; margin-right: 8px;">✓</span>${item}</li>`;
+//               } else {
+//                 itemHTML = `<li style="margin-bottom: 6px; font-size: 13px;">${item}</li>`;
+//               }
 //             } else {
 //               itemHTML = `<div style="margin-bottom: 8px; font-size: 12px;">${JSON.stringify(item)}</div>`;
 //             }
@@ -584,12 +252,33 @@ export default function SimpleMeasurementContainer({
 //           let contentHTML = "";
 
 //           if (sectionKey === "summary") {
-//             contentHTML = isModern
+//             contentHTML = isMinimal
+//               ? `<p style="font-size: 12px; line-height: 1.5; margin-bottom: 12px;">${section.data || ""}</p>`
+//               : isModern
 //               ? `<p style="font-size: 13px; line-height: 1.6; margin-bottom: 20px;">${section.data || ""}</p>`
 //               : `<p style="font-size: 12px; line-height: 1.6; margin-bottom: 16px;">${section.data || ""}</p>`;
 //           } else if (sectionKey === "skills") {
-//             if (isModern) {
-//               // Modern uses grid layout - measure differently
+//             if (isMinimal) {
+//               contentHTML = `
+//                 <div style="font-size: 12px; margin-bottom: 12px; line-height: 1.4;">
+//                   ${section.data.technical ? `
+//                     <div style="margin-bottom: 4px;">
+//                       <span style="font-weight: 600;">Technical: </span>
+//                       <span>${section.data.technical.join(" • ")}</span>
+//                     </div>` : ""}
+//                   ${section.data.soft ? `
+//                     <div style="margin-bottom: 4px;">
+//                       <span style="font-weight: 600;">Soft Skills: </span>
+//                       <span>${section.data.soft.join(" • ")}</span>
+//                     </div>` : ""}
+//                   ${section.data.tools ? `
+//                     <div>
+//                       <span style="font-weight: 600;">Tools: </span>
+//                       <span>${section.data.tools.join(" • ")}</span>
+//                     </div>` : ""}
+//                 </div>
+//               `;
+//             } else if (isModern) {
 //               contentHTML = `
 //                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
 //                   ${section.data.technical ? `
@@ -610,7 +299,6 @@ export default function SimpleMeasurementContainer({
 //                 </div>
 //               `;
 //             } else {
-//               // Classic uses vertical layout
 //               contentHTML = `
 //                 <div style="margin-bottom: 16px;">
 //                   ${section.data.technical ? `
@@ -660,9 +348,9 @@ export default function SimpleMeasurementContainer({
 //       // console.log(`\n✅ Pagination complete! ${pages.length} pages created`);
 //       pages.forEach((page, i) => {
 //         const pageInfo = page.map(item =>
-//           item.itemIndex !== undefined
-//             ? `${item.section}[${item.itemIndex}]`
-//             : `${item.section}:${item.type}`
+//           item?.itemIndex !== undefined
+//             ? `${item?.section}[${item?.itemIndex}]`
+//             : `${item?.section}:${item?.type}`
 //         ).join(", ");
 //         // console.log(`   Page ${i + 1}: ${pageInfo}`);
 //       });
@@ -689,3 +377,393 @@ export default function SimpleMeasurementContainer({
 //     />
 //   );
 // }
+import React, { useEffect, useRef, useState } from "react";
+import { ResumeData } from "@/types/resume";
+
+interface PageItem {
+  section: string;
+  type: "header" | "item";
+  itemIndex?: number;
+}
+
+interface SimpleMeasurementContainerProps {
+  resumeData: ResumeData;
+  sectionOrder: (keyof ResumeData)[];
+  onPagesComputed: (pages: PageItem[][]) => void;
+  templateId?: string;
+  onCalibrating?: (isCalibrating: boolean) => void;
+}
+
+export default function SimpleMeasurementContainer({
+  resumeData,
+  sectionOrder,
+  onPagesComputed,
+  templateId = "TemplateModern",
+  onCalibrating,
+}: SimpleMeasurementContainerProps) {
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [isCalculating, setIsCalculating] = useState(true);
+
+  useEffect(() => {
+    // A4 at 96dpi = 794px wide, 1122px tall
+    // We use 40px padding on each side (matches A4Preview padding: "40px")
+    const A4_HEIGHT = 1122;
+    // Conservative safe height: leave room for page number footer + breathing room
+    const SAFE_HEIGHT = templateId === "TemplateMinimal" ? 1050 : 900;
+    const CONTENT_WIDTH = 794 - 80; // 794 - (40px padding * 2) = 714px
+
+    const calculatePages = async () => {
+      if (!measureRef.current) return;
+
+      setIsCalculating(true);
+      if (onCalibrating) onCalibrating(true);
+
+      // Give browser a tick to paint before we measure
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const pages: PageItem[][] = [];
+      let currentPage: PageItem[] = [];
+      let currentHeight = 0;
+
+      const visibleSections = sectionOrder.filter(
+        (key) => (resumeData as any)[key]?.visible
+      );
+
+      // ── Measure helper: injects real HTML at A4 content width, reads offsetHeight ──
+      const measureElement = (html: string): number => {
+        const tempDiv = document.createElement("div");
+        tempDiv.style.cssText = `
+          position: absolute;
+          left: -9999px;
+          top: 0;
+          width: ${CONTENT_WIDTH}px;
+          visibility: hidden;
+          font-family: ui-sans-serif, system-ui, sans-serif;
+          font-size: 14px;
+          line-height: 1.5;
+          box-sizing: border-box;
+        `;
+        tempDiv.innerHTML = html;
+        document.body.appendChild(tempDiv);
+        const height = tempDiv.offsetHeight;
+        document.body.removeChild(tempDiv);
+        return height;
+      };
+
+      const isModern  = templateId === "TemplateModern";
+      const isClassic = templateId === "TemplateClassic";
+      const isMinimal = templateId === "TemplateMinimal";
+
+      // Header block (name + contact row) — only on page 1
+      // Approximate measured heights from real templates:
+      let HEADER_HEIGHT = 120;
+      if (isModern)  HEADER_HEIGHT = 110;
+      if (isClassic) HEADER_HEIGHT = 140;
+      if (isMinimal) HEADER_HEIGHT = 90;
+
+      currentHeight = HEADER_HEIGHT;
+
+      for (const sectionKey of visibleSections) {
+        const section = (resumeData as any)[sectionKey];
+        if (!section) continue;
+
+        // ── Section title heading ──
+        // Match font sizes used in each template
+        let sectionLabelHtml = "";
+        const label =
+          String(sectionKey).charAt(0).toUpperCase() +
+          String(sectionKey).slice(1);
+
+        if (isMinimal) {
+          sectionLabelHtml = `
+            <h2 style="
+              font-size:12px;font-weight:700;text-transform:uppercase;
+              letter-spacing:0.08em;border-bottom:1px solid #d1d5db;
+              padding-bottom:3px;margin-bottom:6px;color:#111827;
+            ">${label}</h2>`;
+        } else if (isModern) {
+          sectionLabelHtml = `
+            <h2 style="
+              font-size:14px;font-weight:700;text-transform:uppercase;
+              letter-spacing:0.05em;border-bottom:1px solid #374151;
+              padding-bottom:4px;margin-bottom:12px;
+            ">${label}</h2>`;
+        } else {
+          // Classic
+          sectionLabelHtml = `
+            <h2 style="
+              font-size:13px;font-weight:700;text-transform:uppercase;
+              border-bottom:2px solid #4b5563;padding-bottom:4px;margin-bottom:10px;
+            ">${label}</h2>`;
+        }
+
+        const headerHeight = measureElement(sectionLabelHtml);
+
+        if (currentHeight + headerHeight > SAFE_HEIGHT && currentPage.length > 0) {
+          pages.push([...currentPage]);
+          currentPage = [];
+          currentHeight = 0;
+        }
+
+        currentPage.push({ section: String(sectionKey), type: "header" });
+        currentHeight += headerHeight;
+
+        // ── Section content ──
+        if (Array.isArray(section.data)) {
+          for (let itemIndex = 0; itemIndex < section.data.length; itemIndex++) {
+            const item = section.data[itemIndex];
+            let itemHTML = "";
+
+            // ────────────────────────────────────────────────
+            // Field names mirror the ACTUAL template components:
+            //   experience → exp.role, exp.duration, exp.company,
+            //                exp.location, exp.responsibilities[]
+            //   education  → edu.degree, edu.field, edu.startDate,
+            //                edu.endDate, edu.institution, edu.location, edu.grade
+            //   projects   → proj.title, proj.role, proj.technologies[],
+            //                proj.description, proj.highlights[]
+            //   certifications → cert.title, cert.issuer, cert.year
+            //   achievements   → plain string items
+            // ────────────────────────────────────────────────
+
+            if (sectionKey === "experience") {
+              const responsibilities: string[] = Array.isArray(item?.responsibilities)
+                ? item.responsibilities
+                : typeof item?.responsibilities === "string"
+                ? [item.responsibilities]
+                : [];
+
+              if (isMinimal) {
+                itemHTML = `
+                  <div style="margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
+                      <span style="font-size:12px;font-weight:700;">${item?.role ?? ""}</span>
+                      <span style="font-size:11px;color:#6b7280;">${item?.duration ?? ""}</span>
+                    </div>
+                    <div style="font-size:11px;color:#6b7280;margin-bottom:3px;">
+                      ${item?.company ?? ""}, ${item?.location ?? ""}
+                    </div>
+                    <ul style="margin-left:14px;font-size:11px;line-height:1.4;">
+                      ${responsibilities.map((r) => `<li style="margin-bottom:2px;">${r}</li>`).join("")}
+                    </ul>
+                  </div>`;
+              } else if (isModern) {
+                itemHTML = `
+                  <div style="margin-bottom:16px;">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;">
+                      <span style="font-size:13px;font-weight:600;">${item?.role ?? ""}</span>
+                      <span style="font-size:12px;color:#6b7280;">${item?.duration ?? ""}</span>
+                    </div>
+                    <div style="font-size:12px;color:#6b7280;font-style:italic;margin-bottom:6px;">
+                      ${item?.company ?? ""} • ${item?.location ?? ""}
+                    </div>
+                    <ul style="margin-left:8px;font-size:12px;line-height:1.5;">
+                      ${responsibilities.map((r) => `<li style="margin-bottom:2px;">${r}</li>`).join("")}
+                    </ul>
+                  </div>`;
+              } else {
+                // Classic
+                itemHTML = `
+                  <div style="margin-bottom:14px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                      <span style="font-size:13px;font-weight:700;">${item?.role ?? ""}</span>
+                      <span style="font-size:11px;color:#6b7280;">${item?.duration ?? ""}</span>
+                    </div>
+                    <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">
+                      ${item?.company ?? ""} | ${item?.location ?? ""}
+                    </div>
+                    <ul style="margin-left:18px;font-size:12px;">
+                      ${responsibilities.map((r) => `<li style="margin-bottom:3px;">${r}</li>`).join("")}
+                    </ul>
+                  </div>`;
+              }
+            } else if (sectionKey === "education") {
+              if (isMinimal) {
+                itemHTML = `
+                  <div style="margin-bottom:8px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+                      <span style="font-size:12px;font-weight:700;">${item?.degree ?? ""} – ${item?.field ?? ""}</span>
+                      <span style="font-size:11px;color:#6b7280;">${item?.startDate ?? ""} – ${item?.endDate ?? ""}</span>
+                    </div>
+                    <div style="font-size:11px;">${item?.institution ?? ""}, ${item?.location ?? ""}</div>
+                    ${item?.grade ? `<div style="font-size:11px;color:#6b7280;">CGPA: ${item.grade}</div>` : ""}
+                  </div>`;
+              } else if (isModern) {
+                itemHTML = `
+                  <div style="margin-bottom:12px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                      <span style="font-size:13px;font-weight:600;">${item?.degree ?? ""} – ${item?.field ?? ""}</span>
+                      <span style="font-size:12px;color:#6b7280;">${item?.startDate ?? ""} – ${item?.endDate ?? ""}</span>
+                    </div>
+                    <div style="font-size:12px;color:#6b7280;">${item?.institution ?? ""} • ${item?.location ?? ""}</div>
+                    ${item?.grade ? `<div style="font-size:12px;color:#6b7280;">Grade: ${item.grade}</div>` : ""}
+                  </div>`;
+              } else {
+                itemHTML = `
+                  <div style="margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;">
+                      <span style="font-size:13px;font-weight:700;">${item?.degree ?? ""} – ${item?.field ?? ""}</span>
+                      <span style="font-size:11px;color:#6b7280;">${item?.startDate ?? ""} – ${item?.endDate ?? ""}</span>
+                    </div>
+                    <div style="font-size:12px;color:#6b7280;">${item?.institution ?? ""}, ${item?.location ?? ""}</div>
+                    ${item?.grade ? `<div style="font-size:12px;color:#6b7280;">Grade: ${item.grade}</div>` : ""}
+                  </div>`;
+              }
+            } else if (sectionKey === "projects") {
+              const technologies: string[] = Array.isArray(item?.technologies)
+                ? item.technologies
+                : [];
+              const highlights: string[] = Array.isArray(item?.highlights)
+                ? item.highlights
+                : [];
+
+              if (isMinimal) {
+                itemHTML = `
+                  <div style="margin-bottom:8px;">
+                    <div style="font-size:12px;font-weight:700;margin-bottom:2px;">
+                      ${item?.title ?? item?.name ?? ""}${item?.role ? ` — ${item.role}` : ""}
+                    </div>
+                    ${technologies.length ? `<div style="font-size:11px;font-style:italic;color:#6b7280;margin-bottom:2px;">${technologies.join(" • ")}</div>` : ""}
+                    <div style="font-size:11px;color:#374151;">${item?.description ?? ""}</div>
+                  </div>`;
+              } else if (isModern) {
+                itemHTML = `
+                  <div style="margin-bottom:14px;">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;">
+                      <span style="font-size:13px;font-weight:700;">
+                        ${item?.title ?? item?.name ?? ""}${item?.role ? ` | ${item.role}` : ""}
+                      </span>
+                    </div>
+                    ${technologies.length ? `<div style="font-size:11px;font-style:italic;color:#6b7280;margin-bottom:4px;">${technologies.join(", ")}</div>` : ""}
+                    <div style="font-size:12px;">${item?.description ?? ""}</div>
+                    ${highlights.length ? `<ul style="margin-left:8px;font-size:12px;margin-top:4px;">${highlights.map((h) => `<li>${h}</li>`).join("")}</ul>` : ""}
+                  </div>`;
+              } else {
+                itemHTML = `
+                  <div style="margin-bottom:12px;">
+                    <div style="font-size:13px;font-weight:700;margin-bottom:3px;">
+                      ${item?.title ?? item?.name ?? ""}
+                    </div>
+                    ${technologies.length ? `<div style="font-size:12px;color:#6b7280;font-style:italic;margin-bottom:4px;">${technologies.join(", ")}</div>` : ""}
+                    <div style="font-size:12px;">${item?.description ?? ""}</div>
+                  </div>`;
+              }
+            } else if (sectionKey === "certifications") {
+              itemHTML = `
+                <div style="margin-bottom:8px;font-size:12px;">
+                  <span style="font-weight:600;">${item?.title ?? ""}</span> • ${item?.issuer ?? ""}
+                  ${item?.year ? `<span style="color:#6b7280;"> (${item.year})</span>` : ""}
+                </div>`;
+            } else if (sectionKey === "achievements") {
+              const text = typeof item === "string" ? item : JSON.stringify(item);
+              if (isMinimal) {
+                itemHTML = `<div style="font-size:11px;margin-bottom:3px;">✓ ${text}</div>`;
+              } else {
+                itemHTML = `<li style="font-size:12px;margin-bottom:5px;">${text}</li>`;
+              }
+            } else {
+              itemHTML = `<div style="font-size:12px;margin-bottom:6px;">${JSON.stringify(item)}</div>`;
+            }
+
+            const itemHeight = measureElement(itemHTML);
+
+            if (currentHeight + itemHeight > SAFE_HEIGHT) {
+              pages.push([...currentPage]);
+              currentPage = [{ section: String(sectionKey), type: "header" }];
+              currentHeight = headerHeight; // continuation page restarts with section header
+            }
+
+            currentPage.push({
+              section: String(sectionKey),
+              type: "item",
+              itemIndex: itemIndex,
+            });
+            currentHeight += itemHeight;
+          }
+        } else {
+          // ── Non-array sections: summary, skills ──
+          let contentHTML = "";
+
+          if (sectionKey === "summary") {
+            const text = typeof section.data === "string" ? section.data : "";
+            if (isMinimal) {
+              contentHTML = `<p style="font-size:12px;line-height:1.5;margin-bottom:10px;">${text}</p>`;
+            } else if (isModern) {
+              contentHTML = `<p style="font-size:13px;line-height:1.6;margin-bottom:16px;">${text}</p>`;
+            } else {
+              contentHTML = `<p style="font-size:12px;line-height:1.6;margin-bottom:14px;">${text}</p>`;
+            }
+          } else if (sectionKey === "skills") {
+            const d = section.data || {};
+            const technical: string[] = Array.isArray(d.technical) ? d.technical : [];
+            const soft: string[] = Array.isArray(d.soft) ? d.soft : [];
+            const tools: string[] = Array.isArray(d.tools) ? d.tools : [];
+
+            if (isMinimal) {
+              contentHTML = `
+                <div style="font-size:12px;margin-bottom:10px;line-height:1.4;">
+                  ${technical.length ? `<div style="margin-bottom:3px;"><b>Technical: </b>${technical.join(" • ")}</div>` : ""}
+                  ${soft.length ? `<div style="margin-bottom:3px;"><b>Soft Skills: </b>${soft.join(" • ")}</div>` : ""}
+                  ${tools.length ? `<div><b>Tools: </b>${tools.join(" • ")}</div>` : ""}
+                </div>`;
+            } else if (isModern) {
+              contentHTML = `
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px;">
+                  ${technical.length ? `<div><div style="font-weight:600;font-size:12px;margin-bottom:3px;">Technical</div><div style="font-size:12px;">${technical.join(", ")}</div></div>` : ""}
+                  ${soft.length ? `<div><div style="font-weight:600;font-size:12px;margin-bottom:3px;">Soft</div><div style="font-size:12px;">${soft.join(", ")}</div></div>` : ""}
+                  ${tools.length ? `<div><div style="font-weight:600;font-size:12px;margin-bottom:3px;">Tools</div><div style="font-size:12px;">${tools.join(", ")}</div></div>` : ""}
+                </div>`;
+            } else {
+              contentHTML = `
+                <div style="margin-bottom:14px;">
+                  ${technical.length ? `<div style="margin-bottom:6px;font-size:12px;"><b>Technical:</b> ${technical.join(", ")}</div>` : ""}
+                  ${tools.length ? `<div style="margin-bottom:6px;font-size:12px;"><b>Tools:</b> ${tools.join(", ")}</div>` : ""}
+                  ${soft.length ? `<div style="font-size:12px;"><b>Soft Skills:</b> ${soft.join(", ")}</div>` : ""}
+                </div>`;
+            }
+          } else {
+            contentHTML = `<div style="font-size:12px;margin-bottom:10px;">${JSON.stringify(section.data)}</div>`;
+          }
+
+          const contentHeight = measureElement(contentHTML);
+
+          if (currentHeight + contentHeight > SAFE_HEIGHT && currentPage.length > 1) {
+            pages.push([...currentPage]);
+            currentPage = [{ section: String(sectionKey), type: "header" }];
+            currentHeight = headerHeight;
+          }
+
+          currentPage.push({ section: String(sectionKey), type: "item" });
+          currentHeight += contentHeight;
+        }
+      }
+
+      // Flush final page
+      if (currentPage.length > 0) {
+        pages.push(currentPage);
+      }
+
+      setIsCalculating(false);
+      if (onCalibrating) onCalibrating(false);
+      onPagesComputed(pages.length > 0 ? pages : [[]]);
+    };
+
+    calculatePages();
+  }, [resumeData, sectionOrder, templateId, onPagesComputed, onCalibrating]);
+
+  // Invisible off-screen anchor — not used for measurement directly,
+  // but kept as a stable DOM ref for future use.
+  return (
+    <div
+      ref={measureRef}
+      style={{
+        position: "absolute",
+        left: -9999,
+        top: -9999,
+        visibility: "hidden",
+        pointerEvents: "none",
+      }}
+      aria-hidden
+    />
+  );
+}

@@ -377,11 +377,11 @@ console.log("matchResult:", matchResult);
                               </div>
                             </div>
                           ) : null}
-                          {matchResult.missing_elements.nice_to_have?.length ? (
+                          {matchResult.missing_elements.nice_to_have_skills?.length ? (
                             <div>
                               <p className="text-yellow-400 text-xs font-semibold uppercase tracking-wider mb-2">Nice to Have</p>
                               <div className="flex flex-wrap gap-2">
-                                {matchResult.missing_elements.nice_to_have?.map((s) => (
+                                {matchResult.missing_elements.nice_to_have_skills?.map((s) => (
                                   <span key={typeof s === 'string' ? s : s.skill} className="text-xs px-2.5 py-1 bg-yellow-500/15 border border-yellow-500/25 text-yellow-300 rounded-full">{typeof s === 'string' ? s : s.skill}</span>
                                 ))}
                               </div>
