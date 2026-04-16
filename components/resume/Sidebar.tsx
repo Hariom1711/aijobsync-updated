@@ -263,7 +263,7 @@ export default function Sidebar({
     setIsExporting(true);
     const tid = toast.loading("Generating PDF…");
     try {
-      const ok = await exportResumeToPDF("resume.pdf");
+      const ok = await exportResumeToPDF(resumeData, "resume.pdf");
       if (ok) {
         toast.success("PDF downloaded!", { id: tid });
       } else {

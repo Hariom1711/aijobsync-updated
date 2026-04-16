@@ -107,218 +107,79 @@
 
 
 // utils/exportResumePDF.ts
+// utils/exportResumePDF.ts
+// ─────────────────────────────────────────────────────────────────────────────
+// Notion-quality PDF export using @react-pdf/renderer.
+//
+// WHY WE DROPPED html2canvas
+// ──────────────────────────
+// html2canvas v1.4.x reads computed styles via getComputedStyle(). In
+// Chrome 111+, Tailwind v4 resolves CSS custom properties (e.g. --background)
+// to their oklch() values. html2canvas then tries to internally convert
+// oklch → lab() — a color function it never implemented — and crashes:
+//
+//   "Attempting to parse an unsupported color function 'lab'"
+//
+// Even stripping oklch from inline styles doesn't help because html2canvas
+// also reads the page's stylesheets, which still contain the oklch vars.
+//
+// THE FIX
+// ───────
+// @react-pdf/renderer generates PDFs from React component trees using its
+// own layout engine + pdfkit. It never touches the DOM, getComputedStyle,
+// or any CSS — so oklch, lab, and every other modern color function are
+// completely irrelevant. This is the same approach Notion uses internally.
+//
+// USAGE
+// ─────
+//   import { exportResumeToPDF } from "@/utils/exportResumePDF";
+//   const ok = await exportResumeToPDF(resumeData, "MyResume.pdf", "TemplateModern");
+// ─────────────────────────────────────────────────────────────────────────────
 "use client";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THIS EXISTS
-//
-// html2canvas v1.4.x reads computed styles directly from the DOM via
-// getComputedStyle(). In Chrome 111+, getComputedStyle() returns oklch()
-// strings for CSS variables (Tailwind v4 uses oklch everywhere). html2canvas
-// then tries to parse those oklch values, converts them to lab() internally,
-// and crashes: "Attempting to parse an unsupported color function 'lab'".
-//
-// Injecting a <style> override doesn't help — html2canvas bypasses
-// stylesheets entirely and reads element.style / getComputedStyle directly.
-//
-// THE FIX (same approach Notion / Linear use for client-side PDF):
-//   1. Collect all resume-page-N elements from the real DOM.
-//   2. Deep-clone each into a temporary off-screen container.
-//   3. Walk every element in the CLONE; for each color property, read the
-//      computed value from the corresponding LIVE element (browser returns
-//      rgb() even for oklch vars), and stamp that rgb() as an inline style
-//      on the clone. Now html2canvas only ever sees rgb().
-//   4. Run html2canvas on the clone at scale:3 for crisp text.
-//   5. Assemble pages into jsPDF and save.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const COLOR_PROPS: (keyof CSSStyleDeclaration)[] = [
-  "color",
-  "backgroundColor",
-  "borderTopColor",
-  "borderRightColor",
-  "borderBottomColor",
-  "borderLeftColor",
-  "outlineColor",
-  "textDecorationColor",
-  "fill",
-  "stroke",
-];
+import { pdf, Document, Page } from "@react-pdf/renderer";
+import React from "react";
+import { ResumeData } from "@/types/resume";
+import ResumePDFDocument from "./ResumePDFDocument";
 
 /**
- * Stamp computed rgb() values from a live element onto its clone.
- * The browser always resolves oklch → rgb in getComputedStyle, so reading
- * from the live element gives us safe values to write onto the clone.
- */
-function bakeColors(liveEl: HTMLElement, cloneEl: HTMLElement): void {
-  const cs = window.getComputedStyle(liveEl);
-  for (const prop of COLOR_PROPS) {
-    const val = cs[prop] as string;
-    // Only override if it's a real color value (not 'none', 'transparent', etc.)
-    if (val && val !== "none" && val !== "transparent" && val !== "initial" && val !== "inherit") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (cloneEl.style as any)[prop] = val;
-    }
-  }
-}
-
-/**
- * Walk liveRoot and cloneRoot in parallel (they have identical DOM structure)
- * and bake all computed colors from live → clone.
- */
-function bakeAllColors(liveRoot: HTMLElement, cloneRoot: HTMLElement): void {
-  // Root itself
-  bakeColors(liveRoot, cloneRoot);
-
-  // All descendants — querySelectorAll order is document order, so indices match
-  const liveEls  = liveRoot.querySelectorAll<HTMLElement>("*");
-  const cloneEls = cloneRoot.querySelectorAll<HTMLElement>("*");
-  const len      = Math.min(liveEls.length, cloneEls.length);
-
-  for (let i = 0; i < len; i++) {
-    bakeColors(liveEls[i], cloneEls[i]);
-  }
-}
-
-/** Capture one DOM element as a high-quality canvas, oklch-safe. */
-async function captureElement(liveEl: HTMLElement): Promise<HTMLCanvasElement> {
-  const w = liveEl.offsetWidth  || liveEl.scrollWidth;
-  const h = liveEl.offsetHeight || liveEl.scrollHeight;
-
-  // Build an off-screen host that won't affect layout
-  const host = document.createElement("div");
-  host.style.cssText = [
-    "position:fixed",
-    "top:-99999px",
-    "left:-99999px",
-    `width:${w}px`,
-    `height:${h}px`,
-    "overflow:hidden",
-    "pointer-events:none",
-    "z-index:-1",
-  ].join(";");
-  document.body.appendChild(host);
-
-  // Deep-clone the live element
-  const clone = liveEl.cloneNode(true) as HTMLElement;
-  clone.style.transform       = "none"; // strip any scale() applied for the preview
-  clone.style.transformOrigin = "top left";
-  clone.style.width           = `${w}px`;
-  clone.style.height          = `${h}px`;
-  clone.style.overflow        = "visible"; // let html2canvas see full content
-  clone.style.backgroundColor = "#ffffff";
-  host.appendChild(clone);
-
-  // ── CORE FIX: bake all computed rgb() values onto the clone ──────────────
-  // Must happen AFTER the clone is in the DOM (so getComputedStyle works on live)
-  bakeAllColors(liveEl, clone);
-
-  try {
-    const canvas = await html2canvas(clone, {
-      scale:           3,        // 3× = ~300 dpi equivalent — crisp on retina
-      useCORS:         true,
-      logging:         false,
-      backgroundColor: "#ffffff",
-      width:           w,
-      height:          h,
-      // onclone is a second safety net: fix any colors html2canvas re-reads
-      // from the cloned document's stylesheet (not element styles)
-      onclone: (_doc: Document, el: HTMLElement) => {
-        el.style.backgroundColor = "#ffffff";
-        // Strip any remaining oklch from inline style attributes
-        // (e.g. set by Framer Motion or dynamic JS after our bake pass)
-        el.querySelectorAll<HTMLElement>("[style]").forEach((node) => {
-          const s = node.getAttribute("style") ?? "";
-          if (s.includes("oklch") || s.includes("oklab") || s.includes("lab(")) {
-            node.setAttribute(
-              "style",
-              s
-                .replace(/oklch\s*\([^)]*\)/gi, "rgb(0,0,0)")
-                .replace(/oklab\s*\([^)]*\)/gi, "rgb(0,0,0)")
-                .replace(/lab\s*\([^)]*\)/gi,   "rgb(0,0,0)")
-            );
-          }
-        });
-      },
-    });
-    return canvas;
-  } finally {
-    document.body.removeChild(host);
-  }
-}
-
-/**
- * Export all resume pages to a multi-page A4 PDF.
+ * Generate and download a PDF resume.
  *
- * Looks for DOM elements with id="resume-page-0", "resume-page-1", …
- * Falls back to id="resume-preview-container" for single-page resumes.
+ * @param resumeData  - The full resume data object
+ * @param filename    - Downloaded file name (default: "resume.pdf")
+ * @param templateId  - "TemplateModern" | "TemplateMinimal" | "TemplateClassic"
+ * @returns           - true on success, false on failure
  */
-export async function exportResumeToPDF(filename = "resume.pdf"): Promise<boolean> {
+export async function exportResumeToPDF(
+  resumeData: ResumeData,
+  filename = "resume.pdf",
+  templateId = "TemplateModern",
+): Promise<boolean> {
   try {
-    // ── 1. Collect page elements ───────────────────────────────────────────
-    const pageEls: HTMLElement[] = [];
-    let i = 0;
-    while (true) {
-      const el = document.getElementById(`resume-page-${i}`);
-      if (!el) break;
-      pageEls.push(el);
-      i++;
-    }
-    if (pageEls.length === 0) {
-      const single = document.getElementById("resume-preview-container");
-      if (single) pageEls.push(single);
-    }
-    if (pageEls.length === 0) {
-      console.error("[exportResumeToPDF] No resume page elements found in the DOM.");
-      return false;
-    }
+    // Build the @react-pdf Document element
+    const docElement = React.createElement(
+      Document,
+      {},
+      React.createElement(Page, {}, React.createElement(ResumePDFDocument, { resumeData, templateId }))
+    );
 
-    // ── 2. Set up jsPDF ────────────────────────────────────────────────────
-    const pdf      = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const PDF_W    = 210; // mm
-    const PDF_H    = 297; // mm
+    // pdf() returns a blob-like object; toBlob() resolves to a real Blob
+    const instance = pdf(docElement);
+    const blob = await instance.toBlob();
 
-    // ── 3. Capture each page and add to PDF ───────────────────────────────
-    for (let p = 0; p < pageEls.length; p++) {
-      const el = pageEls[p];
+    // Trigger browser download
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement("a");
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 
-      // Capture at full real size (794 × 1122 px), scale:3 inside
-      const canvas = await captureElement(el);
+    // Release the object URL after a short delay
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-      if (p > 0) pdf.addPage();
-
-      // Fit canvas proportionally into A4
-      // canvas dimensions: (el.offsetWidth * 3) × (el.offsetHeight * 3)
-      const imgData   = canvas.toDataURL("image/jpeg", 0.97);
-      const imgW      = PDF_W;
-      const imgH      = (canvas.height / canvas.width) * PDF_W;
-
-      if (imgH <= PDF_H) {
-        // Fits on one page — center vertically if short
-        const yOffset = imgH < PDF_H ? (PDF_H - imgH) / 2 : 0;
-        pdf.addImage(imgData, "JPEG", 0, yOffset, imgW, imgH, undefined, "FAST");
-      } else {
-        // Taller than A4 — tile across pages (edge case: should not happen
-        // when pagination is working correctly, but handled gracefully)
-        let remaining = imgH;
-        let yPos      = 0;
-        pdf.addImage(imgData, "JPEG", 0, yPos, imgW, imgH, undefined, "FAST");
-        remaining -= PDF_H;
-        while (remaining > 0) {
-          yPos -= PDF_H;
-          pdf.addPage();
-          pdf.addImage(imgData, "JPEG", 0, yPos, imgW, imgH, undefined, "FAST");
-          remaining -= PDF_H;
-        }
-      }
-    }
-
-    // ── 4. Save ────────────────────────────────────────────────────────────
-    pdf.save(filename);
     return true;
-
   } catch (err) {
     console.error("[exportResumeToPDF] Error:", err);
     return false;
