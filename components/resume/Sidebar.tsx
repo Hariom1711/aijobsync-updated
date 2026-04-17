@@ -1,5 +1,6 @@
 
 
+
 // "use client";
 
 // import React, { useState } from "react";
@@ -19,6 +20,7 @@
 //   GripVertical,
 // } from "lucide-react";
 // import { exportResumeToPDF } from "@/utils/exportResumePDF";
+// import { toast } from "sonner";
 // import { Download, Loader2 } from "lucide-react"; // already in file, bas add karo
 // interface SidebarProps {
 //   resumeData: ResumeData;
@@ -77,11 +79,16 @@
 
 //   const handleExportPDF = async () => {
 //     setIsExporting(true);
+//     const tid = toast.loading("Generating PDF…");
 //     try {
-//       const ok = await exportResumeToPDF("resume.pdf");
-//       if (!ok) alert("Export failed. Please try again.");
+//       const ok = await exportResumeToPDF(resumeData, "resume.pdf");
+//       if (ok) {
+//         toast.success("PDF downloaded!", { id: tid });
+//       } else {
+//         toast.error("Export failed — no resume found on page.", { id: tid });
+//       }
 //     } catch {
-//       alert("Export failed. Please try again.");
+//       toast.error("Export failed. Please try again.", { id: tid });
 //     } finally {
 //       setIsExporting(false);
 //     }
@@ -180,9 +187,6 @@
 //   );
 // }
 
-
-
-
 "use client";
 
 import React, { useState } from "react";
@@ -211,6 +215,8 @@ interface SidebarProps {
   onAddSection: () => void;
   sectionOrder: (keyof ResumeData)[];
   setSectionOrder: React.Dispatch<React.SetStateAction<(keyof ResumeData)[]>>;
+  /** The active template component name, e.g. "TemplateModern" */
+  templateId?: string;
 }
 
 // icon mapping
@@ -232,6 +238,7 @@ export default function Sidebar({
   onAddSection,
   sectionOrder,
   setSectionOrder,
+  templateId = "TemplateModern",
 }: SidebarProps) {
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -263,7 +270,7 @@ export default function Sidebar({
     setIsExporting(true);
     const tid = toast.loading("Generating PDF…");
     try {
-      const ok = await exportResumeToPDF(resumeData, "resume.pdf");
+      const ok = await exportResumeToPDF(resumeData, "resume.pdf", templateId);
       if (ok) {
         toast.success("PDF downloaded!", { id: tid });
       } else {

@@ -135,9 +135,59 @@
 //   import { exportResumeToPDF } from "@/utils/exportResumePDF";
 //   const ok = await exportResumeToPDF(resumeData, "MyResume.pdf", "TemplateModern");
 // ─────────────────────────────────────────────────────────────────────────────
+// "use client";
+
+// import { pdf, Document, Page } from "@react-pdf/renderer";
+// import React from "react";
+// import { ResumeData } from "@/types/resume";
+// import ResumePDFDocument from "./ResumePDFDocument";
+
+// /**
+//  * Generate and download a PDF resume.
+//  *
+//  * @param resumeData  - The full resume data object
+//  * @param filename    - Downloaded file name (default: "resume.pdf")
+//  * @param templateId  - "TemplateModern" | "TemplateMinimal" | "TemplateClassic"
+//  * @returns           - true on success, false on failure
+//  */
+// export async function exportResumeToPDF(
+//   resumeData: ResumeData,
+//   filename = "resume.pdf",
+//   templateId = "TemplateModern",
+// ): Promise<boolean> {
+//   try {
+//     // Build the @react-pdf Document element
+//     const docElement = React.createElement(
+//       Document,
+//       {},
+//       React.createElement(Page, {}, React.createElement(ResumePDFDocument, { resumeData, templateId }))
+//     );
+
+//     // pdf() returns a blob-like object; toBlob() resolves to a real Blob
+//     const instance = pdf(docElement);
+//     const blob = await instance.toBlob();
+
+//     // Trigger browser download
+//     const url = URL.createObjectURL(blob);
+//     const a   = document.createElement("a");
+//     a.href     = url;
+//     a.download = filename;
+//     document.body.appendChild(a);
+//     a.click();
+//     document.body.removeChild(a);
+
+//     // Release the object URL after a short delay
+//     setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+//     return true;
+//   } catch (err) {
+//     console.error("[exportResumeToPDF] Error:", err);
+//     return false;
+//   }
+// }
 "use client";
 
-import { pdf, Document, Page } from "@react-pdf/renderer";
+import { pdf } from "@react-pdf/renderer";
 import React from "react";
 import { ResumeData } from "@/types/resume";
 import ResumePDFDocument from "./ResumePDFDocument";
@@ -156,12 +206,9 @@ export async function exportResumeToPDF(
   templateId = "TemplateModern",
 ): Promise<boolean> {
   try {
-    // Build the @react-pdf Document element
-    const docElement = React.createElement(
-      Document,
-      {},
-      React.createElement(Page, {}, React.createElement(ResumePDFDocument, { resumeData, templateId }))
-    );
+    // ResumePDFDocument already wraps everything in <Document><Page>.
+    // Do NOT add another Document/Page layer — that causes a blank first page.
+    const docElement = React.createElement(ResumePDFDocument, { resumeData, templateId });
 
     // pdf() returns a blob-like object; toBlob() resolves to a real Blob
     const instance = pdf(docElement);
@@ -185,3 +232,4 @@ export async function exportResumeToPDF(
     return false;
   }
 }
+
