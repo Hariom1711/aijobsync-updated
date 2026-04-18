@@ -1,8 +1,9 @@
 // app/api/interview/answer/route.ts
+// HOTFIX: Uses in-memory session store instead of DB
 import { NextRequest } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getAuthUser, unauthorized, apiError, apiSuccess, serverError } from "@/lib/api-helpers";
 import { callGroq } from "@/lib/groq-client";
+import { interviewSessions } from "../generate/route";
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser();
@@ -19,13 +20,14 @@ export async function POST(req: NextRequest) {
       return apiError("sessionId, questionId, and answer are required.");
     }
 
-    const session = await prisma.interviewSession.findUnique({
-      where: { id: sessionId, userId: user.id },
-    });
+    const session = interviewSessions.get(sessionId);
 
-    if (!session) return apiError("Interview session not found.", 404);
+    if (!session || session.userId !== user.id) {
+      return apiError("Interview session not found.", 404);
+    }
 
-    const systemPrompt = "You are a technical interviewer evaluating a candidate's answer. Return only valid JSON, no markdown.";
+    const systemPrompt =
+      "You are a technical interviewer evaluating a candidate's answer. Return only valid JSON, no markdown.";
 
     const userPrompt = `Evaluate this interview answer.
 
@@ -48,20 +50,18 @@ Return ONLY this JSON:
     try {
       feedbackData = JSON.parse(clean);
     } catch {
-      feedbackData = { score: 5, feedback: "Answer recorded.", missed: "", suggestion: "Practice more." };
+      feedbackData = {
+        score: 5,
+        feedback: "Answer recorded.",
+        missed: "",
+        suggestion: "Practice more structured answers.",
+      };
     }
 
-    // Update session with answer + feedback
-    const existingAnswers  = (session.answers  as any[]) ?? [];
-    const existingFeedback = (session.feedback as any[]) ?? [];
-
-    await prisma.interviewSession.update({
-      where: { id: sessionId },
-      data: {
-        answers:  [...existingAnswers,  { questionId, answer }],
-        feedback: [...existingFeedback, { questionId, ...feedbackData }],
-      },
-    });
+    // Update in-memory session
+    session.answers.push({ questionId, answer });
+    session.feedback.push({ questionId, ...feedbackData });
+    interviewSessions.set(sessionId, session);
 
     return apiSuccess({ feedback: feedbackData });
   } catch (err) {

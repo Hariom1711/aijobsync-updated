@@ -1,8 +1,24 @@
 // app/api/interview/generate/route.ts
+// HOTFIX: Session stored in-memory (no InterviewSession DB table needed)
+// Sessions persist per server process — fine for dev, replace with DB when Prisma issue resolved
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, unauthorized, apiError, apiSuccess, serverError } from "@/lib/api-helpers";
 import { callGroq } from "@/lib/groq-client";
+import { randomUUID } from "crypto";
+
+// In-memory session store — survives across requests in same server process
+export const interviewSessions = new Map<string, {
+  sessionId: string;
+  userId: string;
+  resumeId: string;
+  jdId: string | null;
+  questions: any[];
+  answers: any[];
+  feedback: any[];
+  status: string;
+  createdAt: Date;
+}>();
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser();
@@ -17,9 +33,9 @@ export async function POST(req: NextRequest) {
 
     if (!resumeId) return apiError("resumeId is required.");
 
-    const [resume] = await Promise.all([
-      prisma.resume.findUnique({ where: { id: resumeId, userId: user.id } }),
-    ]);
+    const resume = await prisma.resume.findUnique({
+      where: { id: resumeId, userId: user.id },
+    });
 
     if (!resume) return apiError("Resume not found.", 404);
 
@@ -31,7 +47,8 @@ export async function POST(req: NextRequest) {
 
     const resumeContent = resume.content as any;
 
-    const systemPrompt = "You are an expert technical interviewer. Return only valid JSON, no markdown, no explanation.";
+    const systemPrompt =
+      "You are an expert technical interviewer. Return only valid JSON, no markdown, no explanation.";
 
     const userPrompt = `Based on the candidate's resume and job description below, generate a structured interview with exactly 10 questions.
 
@@ -69,20 +86,23 @@ Mix: 5 technical (from JD skills), 3 behavioral (situational), 2 project-specifi
       return serverError("AI returned invalid data. Please try again.");
     }
 
-    // Save session to DB
-    const session = await prisma.interviewSession.create({
-      data: {
-        userId:    user.id,
-        resumeId,
-        jdId:      jdId ?? null,
-        questions: parsed.questions ?? [],
-        answers:   [],
-        feedback:  [],
-        status:    "in_progress",
-      },
+    // Generate a UUID for session — no DB needed
+    const sessionId = randomUUID();
+
+    // Store in memory
+    interviewSessions.set(sessionId, {
+      sessionId,
+      userId:    user.id,
+      resumeId,
+      jdId:      jdId ?? null,
+      questions: parsed.questions ?? [],
+      answers:   [],
+      feedback:  [],
+      status:    "in_progress",
+      createdAt: new Date(),
     });
 
-    return apiSuccess({ sessionId: session.id, questions: parsed.questions });
+    return apiSuccess({ sessionId, questions: parsed.questions });
   } catch (err) {
     console.error("[interview/generate]", err);
     return serverError("Failed to generate interview.");

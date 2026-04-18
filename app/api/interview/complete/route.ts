@@ -1,7 +1,8 @@
 // app/api/interview/complete/route.ts
+// HOTFIX: Uses in-memory session store instead of DB
 import { NextRequest } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getAuthUser, unauthorized, apiError, apiSuccess, serverError } from "@/lib/api-helpers";
+import { interviewSessions } from "../generate/route";
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser();
@@ -15,36 +16,44 @@ export async function POST(req: NextRequest) {
     const { sessionId } = await req.json();
     if (!sessionId) return apiError("sessionId is required.");
 
-    const session = await prisma.interviewSession.findUnique({
-      where: { id: sessionId, userId: user.id },
-    });
+    const session = interviewSessions.get(sessionId);
 
-    if (!session) return apiError("Interview session not found.", 404);
+    if (!session || session.userId !== user.id) {
+      return apiError("Interview session not found.", 404);
+    }
 
-    const feedback   = (session.feedback as any[]) ?? [];
-    const questions  = (session.questions as any[]) ?? [];
-    const answers    = (session.answers as any[]) ?? [];
+    const feedback  = session.feedback  ?? [];
+    const questions = session.questions ?? [];
+    const answers   = session.answers   ?? [];
 
     // Calculate overall score
-    const scores     = feedback.map((f) => f.score ?? 5);
-    const avgScore   = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const scores   = feedback.map((f: any) => f.score ?? 5);
+    const avgScore = scores.length
+      ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length)
+      : 0;
 
-    // Build scorecard
     const scorecard = {
       overallScore:      avgScore,
       totalQuestions:    questions.length,
       answeredQuestions: answers.length,
-      strengths:         feedback.filter((f) => f.score >= 7).map((f) => f.feedback).slice(0, 3),
-      weakAreas:         feedback.filter((f) => f.score < 6).map((f) => f.missed).filter(Boolean).slice(0, 3),
-      topSuggestion:     feedback.sort((a, b) => a.score - b.score)[0]?.suggestion ?? "Keep practicing!",
-      perQuestion:       feedback,
+      strengths:  feedback.filter((f: any) => f.score >= 7).map((f: any) => f.feedback).slice(0, 3),
+      weakAreas:  feedback.filter((f: any) => f.score <  6).map((f: any) => f.missed).filter(Boolean).slice(0, 3),
+      topSuggestion: [...feedback].sort((a: any, b: any) => a.score - b.score)[0]?.suggestion ?? "Keep practicing!",
+      perQuestion: feedback,
     };
 
-    // Mark session complete
-    await prisma.interviewSession.update({
-      where: { id: sessionId },
-      data: { status: "completed", scorecard },
-    });
+    // Mark session complete in memory
+    session.status = "completed";
+    interviewSessions.set(sessionId, session);
+
+    // Clean up old sessions (keep last 50 per process)
+    if (interviewSessions.size > 50) {
+      const oldest = [...interviewSessions.entries()]
+        .sort((a, b) => a[1].createdAt.getTime() - b[1].createdAt.getTime())
+        .slice(0, 10)
+        .map(([key]) => key);
+      oldest.forEach((k) => interviewSessions.delete(k));
+    }
 
     return apiSuccess({ scorecard });
   } catch (err) {
