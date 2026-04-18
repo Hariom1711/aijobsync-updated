@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -20,10 +21,10 @@ model User {
   plan            SubscriptionPlan  @default(FREE)
   accounts        Account[]
   sessions        Session[]
-  
-  // NEW: For resume generation system
-  jobDescriptions JobDescription[]
-  profileMatches  ProfileMatch[]
+
+  jobDescriptions  JobDescription[]
+  profileMatches   ProfileMatch[]
+  interviewSessions InterviewSession[]
 }
 
 model Account {
@@ -40,7 +41,7 @@ model Account {
   id_token           String?
   session_state      String?
   user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@unique([provider, providerAccountId])
 }
 
@@ -56,15 +57,14 @@ model VerificationToken {
   identifier String
   token      String   @unique
   expires    DateTime
-  
+
   @@unique([identifier, token])
 }
 
 model MasterProfile {
   id            String   @id @default(cuid())
   userId        String   @unique
-  
-  // Personal Info
+
   fullName      String?
   phone         String?
   location      String?
@@ -72,147 +72,160 @@ model MasterProfile {
   github        String?
   portfolio     String?
   summary       String?  @db.Text
-  
-  // Main sections - Using Json for flexibility
-  education     Json?    // Education[]
-  experience    Json?    // ExperienceItem[]
-  projects      Json?    // Project[]
-  certifications Json?   // Certification[]
-  achievements  Json?    // Achievement[]
-  
-  // Skills - Using Json for coreSkills object structure
-  coreSkills    Json?    // CoreSkills object with categories
-  softSkills    String[] // Simple array
-  tools         String[] // Simple array
-  
-  // Additional Info
-  codingProfiles Json?   // CodingProfile[]
-  languages     Json?    // Language[] with proficiency
-  
-  // Meta
+
+  education     Json?
+  experience    Json?
+  projects      Json?
+  certifications Json?
+  achievements  Json?
+
+  coreSkills    Json?
+  softSkills    String[]
+  tools         String[]
+
+  codingProfiles Json?
+  languages     Json?
+
   completeness  Int?     @default(0)
   lastUpdated   DateTime @default(now()) @updatedAt
   createdAt     DateTime @default(now())
-  
+
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// NEW MODEL: Store analyzed job descriptions
 model JobDescription {
   id              String   @id @default(cuid())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Raw JD data
+
   jdText          String   @db.Text
-  fileName        String?  // If uploaded as file
-  fileSize        Int?     // File size in bytes
-  
-  // Parsed analysis (full JSON from Groq)
-  analysis        Json     // JobDescriptionAnalysis type
-  
-  // Quick access fields for querying
+  fileName        String?
+  fileSize        Int?
+
+  analysis        Json
+
   jobTitle        String?
   companyName     String?
-  experienceLevel String?  // "junior", "mid", "senior", etc.
-  
-  // Timestamps
+  experienceLevel String?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  
-  // Relations
+
   matches         ProfileMatch[]
   resumes         Resume[]
-  
+  interviewSessions InterviewSession[]
+
   @@index([userId])
   @@index([jobTitle])
   @@index([createdAt])
 }
 
-// NEW MODEL: Store profile match results
 model ProfileMatch {
   id              String   @id @default(cuid())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   jdId            String
   jobDescription  JobDescription @relation(fields: [jdId], references: [id], onDelete: Cascade)
-  
-  profileId       String   // Reference to MasterProfile.id
-  
-  // Match results (full JSON)
-  matchData       Json     // ProfileMatchResult type
-  
-  // Quick access fields
-  overallScore    Int      // 0-100 for easy querying/sorting
-  potentialScore  Int?     // Only for premium users
-  
-  // Timestamps
+
+  profileId       String
+
+  matchData       Json
+
+  overallScore    Int
+  potentialScore  Int?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  
-  // Relations
+
   resumes         Resume[]
-  
+
   @@index([userId])
   @@index([jdId])
   @@index([overallScore])
   @@index([createdAt])
 }
 
-// UPDATED: Resume model with new relations
 model Resume {
   id              String     @id @default(cuid())
   userId          String
   user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // NEW: Link to JD and Match
+
   jdId            String?
   jobDescription  JobDescription? @relation(fields: [jdId], references: [id], onDelete: SetNull)
-  
+
   matchId         String?
   profileMatch    ProfileMatch?   @relation(fields: [matchId], references: [id], onDelete: SetNull)
-  
-  // Resume data
-  jobDesc         String     @db.Text  // Keep for backward compatibility
-  content         Json       // Optimized resume data
-  template        String     // Template ID used
-  
-  // Metadata
-  score           Int?       // ATS score
-  version         Int        @default(1)  // Version number if regenerated
-  
-  // File URLs (after PDF generation)
+
+  jobDesc         String     @db.Text
+  content         Json
+  template        String
+
+  score           Int?
+  version         Int        @default(1)
+
   pdfUrl          String?
   docxUrl         String?
-  
-  // Timestamps
+
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
-  
-  // Relations
+
   feedbacks       Feedback[]
-  
+  interviewSessions InterviewSession[]
+
   @@index([userId])
   @@index([jdId])
   @@index([matchId])
   @@index([createdAt])
 }
 
-// UPDATED: Feedback model - more structured
 model Feedback {
   id        String   @id @default(cuid())
   resumeId  String
   resume    Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  
-  // Feedback data
-  rating    Int?     // 1-5 stars
-  points    Json     // Detailed feedback points
-  userNote  String?  @db.Text  // User's own notes
-  
+
+  rating    Int?
+  points    Json
+  userNote  String?  @db.Text
+
   createdAt DateTime @default(now())
-  
+
   @@index([resumeId])
+}
+
+// NEW: AI Interview sessions
+model InterviewSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  resumeId  String
+  resume    Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  jdId      String?
+  jobDescription JobDescription? @relation(fields: [jdId], references: [id], onDelete: SetNull)
+
+  // AI generated questions array
+  questions Json     // Question[]
+
+  // User answers array  { questionId, answer }[]
+  answers   Json     @default("[]")
+
+  // AI feedback per answer { questionId, score, feedback, missed, suggestion }[]
+  feedback  Json     @default("[]")
+
+  // Final scorecard after completion
+  scorecard Json?
+
+  status    String   @default("in_progress") // "in_progress" | "completed"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([resumeId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 enum SubscriptionPlan {
